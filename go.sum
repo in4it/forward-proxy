@@ -1,0 +1,4 @@
+github.com/elazarl/goproxy v0.0.0-20190711103511-473e67f1d7d2 h1:aZtFdDNWY/yH86JPR2WX/PN63635VsE/f/nXNPAbYxY=
+github.com/elazarl/goproxy v0.0.0-20190711103511-473e67f1d7d2/go.mod h1:/Zj4wYkgs4iZTTu3o/KG3Itv/qCCa8VVMlb3i9OVuzc=
+github.com/google/tcpproxy v0.0.0-20180808230851-dfa16c61dad2 h1:AtvtonGEH/fZK0XPNNBdB6swgy7Iudfx88wzyIpwqJ8=
+github.com/google/tcpproxy v0.0.0-20180808230851-dfa16c61dad2/go.mod h1:DavVbd41y+b7ukKDmlnPR4nGYmkWXR6vHUkjQNiHPBs=
