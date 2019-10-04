@@ -1,0 +1,158 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Launch Forward Proxy
+
+Parameters:
+  VPCId:
+    Type: String
+    Description: vpc-id of the vpc where to deploy the forward proxy
+  VPCCidrBlock:
+    Type: String
+    Description: cidr block of the vpc
+  SubnetId:
+    Type: String
+    Description: subnet-id of the vpc subnet where to deploy the forward proxy
+
+Resources:
+  ExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com" 
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                Resource: "*"
+  TaskRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com" 
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+  WhitelistParameter:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: "/forward-proxy/WHITELIST"
+      Type: "StringList"
+      Value: "www.google.com:443,ifconfig.co:80,ifconfig.co:443"
+      Description: "Whitelist"
+  ForwardProxyCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: forward-proxy
+  ForwardProxyTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      ContainerDefinitions: 
+        - Essential: true
+          HealthCheck: 
+            Command: [ "CMD-SHELL", "curl '127.0.0.1:8080/' || exit 1" ]
+            Interval: 5
+            Retries: 2
+            Timeout: 2
+          Image: in4it/forward-proxy:latest
+          LogConfiguration: 
+            LogDriver: awslogs
+            Options:
+              awslogs-group: forward-proxy
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: forward-proxy
+          Name: forward-proxy
+          PortMappings: 
+            - ContainerPort: 8080
+              HostPort: 8080
+              Protocol: tcp
+          Secrets: 
+            - Name: WHITELIST
+              ValueFrom: !Ref WhitelistParameter
+      Cpu: 256
+      ExecutionRoleArn: !Ref ExecutionRole
+      Family: ForwardProxy
+      Memory: 1024
+      NetworkMode: awsvpc
+      RequiresCompatibilities: 
+        - FARGATE
+      TaskRoleArn: !Ref TaskRole
+  ForwardProxyCloudMap:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties: 
+      Description: Forward proxy service discovery
+      Name: forward-proxy.local
+      Vpc: !Ref VPCId
+  ForwardProxyDiscoveryService:
+    Type: 'AWS::ServiceDiscovery::Service'
+    Properties:
+      Description: forward proxy discovery service
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 60
+        RoutingPolicy: MULTIVALUE
+      Name: forward-proxy
+      NamespaceId: !Ref ForwardProxyCloudMap
+  ForwardProxySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Allow http for proxy
+        VpcId: !Ref VPCId
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref VPCCidrBlock
+        SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+  ForwardProxyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: forward-proxy
+      RetentionInDays: 30
+  ForwardProxyService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ForwardProxyCluster
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref ForwardProxyTaskDef
+      ServiceName: forward-proxy
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ForwardProxyDiscoveryService.Arn
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: 
+            - !Ref ForwardProxySecurityGroup
+          Subnets:
+            - !Ref SubnetId
